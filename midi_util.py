@@ -1,10 +1,12 @@
 """
 Handles MIDI file loading
 """
-import midi
+import pretty_midi as pm
 import numpy as np
-import os
 from constants import *
+import midi
+from copy import deepcopy
+
 
 def midi_encode(note_seq, resolution=NOTES_PER_BEAT, step=1):
     """
@@ -94,20 +96,23 @@ def midi_encode(note_seq, resolution=NOTES_PER_BEAT, step=1):
 
     return pattern
 
+
 def midi_decode(pattern,
+                pm,
                 classes=MIDI_MAX_NOTES,
                 step=None):
     """
     Takes a MIDI pattern and decodes it into a piano roll.
     """
     if step is None:
-        step = pattern.resolution // NOTES_PER_BEAT
+        # Resolution is TICKS_PER_BEAT
+        step = pm.resolution // NOTES_PER_BEAT
 
     # Extract all tracks at highest resolution
     merged_replay = None
     merged_volume = None
 
-    for track in pattern:
+    for track in pattern.tracks:
         # The downsampled sequences
         replay_sequence = []
         volume_sequence = []
@@ -190,6 +195,7 @@ def midi_decode(pattern,
     merged = np.minimum(merged, 1)
     return merged
 
+
 def load_midi(fname):
     p = midi.read_midifile(fname)
     cache_path = os.path.join(CACHE_DIR, fname + '.npy')
@@ -209,9 +215,75 @@ def load_midi(fname):
     assert (note_seq <= 1).all()
     return note_seq
 
+
+def compute_drum_piano_roll(instrument, piano_roll, fs):
+
+    roll = deepcopy(piano_roll)
+    for note in instrument.notes:
+        # Should interpolate
+        roll[note.pitch, int(note.start * fs):int(note.end * fs)] += note.velocity
+
+    return roll
+
+
+def midi_decode_v2(p):
+
+    # Compute piano rolls for every instrument
+    # TODO: compute for drums separately because pretty midi can't
+    # TODO: determine the frequency for a 16th note? (but if the fs is higher then no replay matrix is needed since the
+    #   pauses between consecutive notes are captured)
+    fs = 420
+    piano_rolls = [] # [[instrument, t_play, t_volume]]
+    for instrument in p.instruments:
+        print(pm.program_to_instrument_name(instrument.program), instrument.is_drum,
+              instrument.get_piano_roll(fs).shape)
+        if instrument.is_drum:
+            piano_rolls.append([instrument, compute_drum_piano_roll(instrument, instrument.get_piano_roll(fs), fs)])
+        else:
+            piano_rolls.append([instrument, instrument.get_piano_roll(fs)])
+
+    # Pad the smaller piano rolls with zeros so that all instruments have the same time_steps
+    pitches, max_time_steps = sorted([piano_roll[1].shape for piano_roll in piano_rolls], key=lambda x: -x[1])[0]
+    for piano_roll in piano_rolls:
+        padding = np.zeros((pitches, max_time_steps - piano_roll[1].shape[1]))
+        piano_roll[1] = np.concatenate((piano_roll[1], padding), axis=1)
+
+        # Compute the 'play' and 'velocity' matrices
+        # TODO: should I leave the piano roll as it is right now with the velocity in it?
+        t_volume = deepcopy(piano_roll[1])
+        normalize_velocity = lambda v: v / MAX_VELOCITY
+        vfunc = np.vectorize(normalize_velocity)
+        t_volume = vfunc(t_volume)
+
+        t_play = piano_roll[1]
+        t_play[t_play == 100] = 1
+
+        piano_roll.append(t_volume)
+
+    # Compute final array with instrument dimension
+    # TODO: what should be the instrument encoding for drums? for now in NUM_INSTRUMENTS
+    final = np.zeros((NUM_INSTRUMENTS + 1, pitches, 2 * max_time_steps)) # + drum dimension
+    for piano_roll in piano_rolls:
+        instrument = piano_roll[0]
+        t_play = piano_roll[1]
+        t_volume = piano_roll[2]
+
+        if instrument.is_drum:
+            final[NUM_INSTRUMENTS] = np.concatenate((t_play, t_volume), axis=1)
+            pass
+        else:
+            final[instrument.program] = np.concatenate((t_play, t_volume), axis=1)
+
+    #print(final[NUM_INSTRUMENTS, :, max_time_steps - 1])
+
+    return final
+
+
 if __name__ == '__main__':
     # Test
     # p = midi.read_midifile("out/test_in.mid")
-    p = midi.read_midifile("out/test_in.mid")
-    p = midi_encode(midi_decode(p))
-    midi.write_midifile("out/test_out.mid", p)
+    # print(p)
+    p = pm.PrettyMIDI("out/test_in.mid")
+    print(midi_decode_v2(p).shape)
+    #p = midi_encode(midi_decode(p))
+    #midi.write_midifile("out/test_out.mid", p)

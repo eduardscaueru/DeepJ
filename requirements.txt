@@ -1,5 +1,5 @@
 keras
-tensorflow-gpu
+tensorflow
 joblib
 tqdm
 h5py

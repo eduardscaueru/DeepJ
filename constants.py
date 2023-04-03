@@ -41,6 +41,8 @@ styles = [
 
 NUM_STYLES = sum(len(s) for s in styles)
 
+NUM_INSTRUMENTS = 128
+
 # MIDI Resolution
 DEFAULT_RES = 96
 MIDI_MAX_NOTES = 128
