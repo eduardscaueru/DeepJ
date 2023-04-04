@@ -122,7 +122,7 @@ def midi_decode_instrument(pattern,
         volume_buffer = [np.zeros((classes,))]
 
         for i, event in enumerate(track):
-            if 'channel' not in event.dict() or event.dict()['channel'] != instrument:
+            if 'channel' not in event.dict():
                 continue
             # Duplicate the last note pattern to wait for next event
             for _ in range(event.time):
@@ -147,7 +147,9 @@ def midi_decode_instrument(pattern,
                 break
 
             # Modify the last note pattern
-            if event.dict()['type'] == 'note_on':
+            # TODO: Nu stiu daca e bine asa dar merge.
+            #   Poate trebuie sa fin cont si de channel petnru fiecare event
+            if event.dict()['type'] == 'note_on' and event.dict()['channel'] == instrument:
                 if event.dict()['velocity'] == 0:
                     pitch = event.dict()['note']
                     volume_buffer[-1][pitch] = 0
@@ -162,7 +164,7 @@ def midi_decode_instrument(pattern,
                         # Override current volume with previous volume
                         volume_buffer[-1][pitch] = volume_buffer[-2][pitch]
 
-            if event.dict()['type'] == 'note_off':
+            if event.dict()['type'] == 'note_off' and event.dict()['channel'] == instrument:
                 pitch = event.dict()['note']
                 volume_buffer[-1][pitch] = 0
 
@@ -332,6 +334,15 @@ def midi_decode_v1(pattern,
         decoded = midi_decode_instrument(pattern, channel, classes=classes, step=step)
         instruments.append((program, decoded))
         print(pm.program_to_instrument_name(program), decoded.shape)
+    print(instruments[5][1][0, :, 2])
+
+    time_steps, pitches, dims = instruments[0][1].shape
+    final = np.zeros((NUM_INSTRUMENTS, time_steps, pitches, dims))
+    for instrument in instruments:
+        final[instrument[0]] = instrument[1]
+    print(final.shape)
+
+    return final
 
 
 if __name__ == '__main__':
