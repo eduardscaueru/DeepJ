@@ -42,6 +42,7 @@ styles = [
 NUM_STYLES = sum(len(s) for s in styles)
 
 NUM_INSTRUMENTS = 128
+FS = 420
 
 # MIDI Resolution
 DEFAULT_RES = 96
@@ -53,8 +54,9 @@ NUM_OCTAVES = 4
 OCTAVE = 12
 
 # Min and max note (in MIDI note number)
-MIN_NOTE = 36
-MAX_NOTE = MIN_NOTE + NUM_OCTAVES * OCTAVE
+MIN_NOTE = 0
+# MAX_NOTE = MIN_NOTE + NUM_OCTAVES * OCTAVE
+MAX_NOTE = 128
 NUM_NOTES = MAX_NOTE - MIN_NOTE
 
 # Number of beats in a bar

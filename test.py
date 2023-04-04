@@ -54,19 +54,19 @@ class TestMIDIUtil(unittest.TestCase):
 
     def test_decode(self):
         # Instantiate a MIDI Pattern (contains a list of tracks)
-        pattern = midi.Pattern(resolution=96)
+        pattern = mido.MidiFile()
         # Instantiate a MIDI Track (contains a list of MIDI events)
-        track = midi.Track()
+        track = mido.MidiTrack()
         # Append the track to the pattern
-        pattern.append(track)
+        pattern.tracks.append(track)
 
-        track.append(midi.NoteOnEvent(tick=0, velocity=127, pitch=0))
-        track.append(midi.NoteOnEvent(tick=96, velocity=127, pitch=1))
-        track.append(midi.NoteOffEvent(tick=0, velocity=127, pitch=0))
-        track.append(midi.NoteOffEvent(tick=48, velocity=127, pitch=1))
-        track.append(midi.EndOfTrackEvent(tick=1))
+        track.append(mido.Message('program_change', program=12, time=0))
+        track.append(mido.Message('note_on', note=0, velocity=127, time=0))
+        track.append(mido.Message('note_on', note=1, velocity=127, time=96))
+        track.append(mido.Message('note_off', note=0, velocity=127, time=0))
+        track.append(mido.Message('note_off', note=1, velocity=127, time=48))
 
-        note_sequence = midi_decode(pattern, 4, step=DEFAULT_RES // 2)
+        note_sequence = midi_decode_v1(pattern, 4, step=DEFAULT_RES // 2)
         composition = note_sequence[:, :, 0]
 
         np.testing.assert_array_equal(composition, [

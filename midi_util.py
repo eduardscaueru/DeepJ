@@ -6,6 +6,7 @@ import numpy as np
 from constants import *
 import midi
 from copy import deepcopy
+import mido
 
 
 def midi_encode(note_seq, resolution=NOTES_PER_BEAT, step=1):
@@ -97,16 +98,15 @@ def midi_encode(note_seq, resolution=NOTES_PER_BEAT, step=1):
     return pattern
 
 
-def midi_decode(pattern,
-                pm,
-                classes=MIDI_MAX_NOTES,
-                step=None):
+def midi_decode_instrument(pattern,
+                           instrument,
+                           classes=MIDI_MAX_NOTES,
+                           step=None):
     """
     Takes a MIDI pattern and decodes it into a piano roll.
     """
     if step is None:
-        # Resolution is TICKS_PER_BEAT
-        step = pm.resolution // NOTES_PER_BEAT
+        step = pattern.ticks_per_beat // NOTES_PER_BEAT
 
     # Extract all tracks at highest resolution
     merged_replay = None
@@ -122,8 +122,10 @@ def midi_decode(pattern,
         volume_buffer = [np.zeros((classes,))]
 
         for i, event in enumerate(track):
+            if 'channel' not in event.dict() or event.dict()['channel'] != instrument:
+                continue
             # Duplicate the last note pattern to wait for next event
-            for _ in range(event.tick):
+            for _ in range(event.time):
                 replay_buffer.append(np.zeros(classes))
                 volume_buffer.append(np.copy(volume_buffer[-1]))
 
@@ -141,22 +143,27 @@ def midi_decode(pattern,
                     replay_buffer = replay_buffer[-1:]
                     volume_buffer = volume_buffer[-1:]
 
-            if isinstance(event, midi.EndOfTrackEvent):
+            if event.dict()['type'] == 'end_of_track':
                 break
 
             # Modify the last note pattern
-            if isinstance(event, midi.NoteOnEvent):
-                pitch, velocity = event.data
-                volume_buffer[-1][pitch] = velocity / MAX_VELOCITY
+            if event.dict()['type'] == 'note_on':
+                if event.dict()['velocity'] == 0:
+                    pitch = event.dict()['note']
+                    volume_buffer[-1][pitch] = 0
+                else:
+                    pitch = event.dict()['note']
+                    velocity = event.dict()['velocity']
+                    volume_buffer[-1][pitch] = velocity / MAX_VELOCITY
 
-                # Check for replay_buffer, which is true if the current note was previously played and needs to be replayed
-                if len(volume_buffer) > 1 and volume_buffer[-2][pitch] > 0 and volume_buffer[-1][pitch] > 0:
-                    replay_buffer[-1][pitch] = 1
-                    # Override current volume with previous volume
-                    volume_buffer[-1][pitch] = volume_buffer[-2][pitch]
+                    # Check for replay_buffer, which is true if the current note was previously played and needs to be replayed
+                    if len(volume_buffer) > 1 and volume_buffer[-2][pitch] > 0 and volume_buffer[-1][pitch] > 0:
+                        replay_buffer[-1][pitch] = 1
+                        # Override current volume with previous volume
+                        volume_buffer[-1][pitch] = volume_buffer[-2][pitch]
 
-            if isinstance(event, midi.NoteOffEvent):
-                pitch, velocity = event.data
+            if event.dict()['type'] == 'note_off':
+                pitch = event.dict()['note']
                 volume_buffer[-1][pitch] = 0
 
         # Add the remaining
@@ -197,7 +204,7 @@ def midi_decode(pattern,
 
 
 def load_midi(fname):
-    p = midi.read_midifile(fname)
+    p = mido.MidiFile(fname)
     cache_path = os.path.join(CACHE_DIR, fname + '.npy')
     try:
         note_seq = np.load(cache_path)
@@ -205,7 +212,7 @@ def load_midi(fname):
         # Perform caching
         os.makedirs(os.path.dirname(cache_path), exist_ok=True)
 
-        note_seq = midi_decode(p)
+        note_seq = midi_decode_v1(p)
         np.save(cache_path, note_seq)
 
     assert len(note_seq.shape) == 3, note_seq.shape
@@ -213,6 +220,22 @@ def load_midi(fname):
     assert note_seq.shape[2] == 3, note_seq.shape
     assert (note_seq >= 0).all()
     assert (note_seq <= 1).all()
+    return note_seq
+
+
+def load_midi_v2(fname):
+
+    p = pm.PrettyMIDI(fname)
+    cache_path = os.path.join(CACHE_DIR, fname + '.npy')
+    try:
+        note_seq = np.load(cache_path)
+    except Exception:
+        # Perform caching
+        os.makedirs(os.path.dirname(cache_path), exist_ok=True)
+
+        note_seq = midi_decode_v2(p)
+        np.save(cache_path, note_seq)
+
     return note_seq
 
 
@@ -232,15 +255,14 @@ def midi_decode_v2(p):
     # TODO: compute for drums separately because pretty midi can't
     # TODO: determine the frequency for a 16th note? (but if the fs is higher then no replay matrix is needed since the
     #   pauses between consecutive notes are captured)
-    fs = 420
     piano_rolls = [] # [[instrument, t_play, t_volume]]
     for instrument in p.instruments:
         print(pm.program_to_instrument_name(instrument.program), instrument.is_drum,
-              instrument.get_piano_roll(fs).shape)
+              instrument.get_piano_roll(FS).shape)
         if instrument.is_drum:
-            piano_rolls.append([instrument, compute_drum_piano_roll(instrument, instrument.get_piano_roll(fs), fs)])
+            piano_rolls.append([instrument, compute_drum_piano_roll(instrument, instrument.get_piano_roll(FS), FS)])
         else:
-            piano_rolls.append([instrument, instrument.get_piano_roll(fs)])
+            piano_rolls.append([instrument, instrument.get_piano_roll(FS)])
 
     # Pad the smaller piano rolls with zeros so that all instruments have the same time_steps
     pitches, max_time_steps = sorted([piano_roll[1].shape for piano_roll in piano_rolls], key=lambda x: -x[1])[0]
@@ -262,28 +284,62 @@ def midi_decode_v2(p):
 
     # Compute final array with instrument dimension
     # TODO: what should be the instrument encoding for drums? for now in NUM_INSTRUMENTS
-    final = np.zeros((NUM_INSTRUMENTS + 1, pitches, 2 * max_time_steps)) # + drum dimension
+    drum_roll_play = np.zeros((pitches, max_time_steps))
+    drum_roll_volume = np.zeros((pitches, max_time_steps))
+    final = np.zeros((NUM_INSTRUMENTS + 1, pitches, max_time_steps, 2)) # + drum dimension
     for piano_roll in piano_rolls:
         instrument = piano_roll[0]
         t_play = piano_roll[1]
         t_volume = piano_roll[2]
 
+        # If there are more drums then put them in a single channel
         if instrument.is_drum:
-            final[NUM_INSTRUMENTS] = np.concatenate((t_play, t_volume), axis=1)
-            pass
+            drum_roll_play = drum_roll_play + t_play
+            drum_roll_volume = drum_roll_volume + t_volume
         else:
-            final[instrument.program] = np.concatenate((t_play, t_volume), axis=1)
+            print(np.stack([t_volume, t_play], axis=2).shape)
+            final[instrument.program] = np.stack([t_volume, t_play], axis=2)
 
-    #print(final[NUM_INSTRUMENTS, :, max_time_steps - 1])
+    # Limit the notes in any case there are more drums
+    drum_roll_play[drum_roll_play > 1] = 1
+    drum_roll_volume[drum_roll_volume > 1] = 1
+    drum_roll = np.stack([drum_roll_volume, drum_roll_play], axis=2)
+    final[NUM_INSTRUMENTS] = drum_roll
+    #print(final[NUM_INSTRUMENTS, :, max_time_steps - 100, 1])
 
-    return final
+    beat_duration = p.get_beats()[1] - p.get_beats()[0]
+
+    return p.get_beats(), final
+
+
+def midi_decode_v1(pattern,
+                   classes=MIDI_MAX_NOTES,
+                   step=None):
+
+    channel_to_program = {}
+    for i, track in enumerate(pattern.tracks):
+        print('Track {}: {}'.format(i, track.name))
+        for msg in track:
+            msg_dict = msg.dict()
+            if msg_dict['type'] == 'program_change':
+                channel_to_program[msg_dict['channel']] = msg_dict['program']
+
+    if 9 not in channel_to_program:
+        channel_to_program[9] = 118
+    print(channel_to_program)
+    instruments = []
+    for channel, program in channel_to_program.items():
+        decoded = midi_decode_instrument(pattern, channel, classes=classes, step=step)
+        instruments.append((program, decoded))
+        print(pm.program_to_instrument_name(program), decoded.shape)
 
 
 if __name__ == '__main__':
     # Test
-    # p = midi.read_midifile("out/test_in.mid")
-    # print(p)
-    p = pm.PrettyMIDI("out/test_in.mid")
-    print(midi_decode_v2(p).shape)
+    pp = mido.MidiFile("out/test_in.mid")
+    midi_decode_v1(pp)
+    # piece = pm.PrettyMIDI("out/test_in.mid")
+    # beats, decoded = midi_decode_v2(piece)
+    # print(beats[1], decoded.shape)
     #p = midi_encode(midi_decode(p))
     #midi.write_midifile("out/test_out.mid", p)
