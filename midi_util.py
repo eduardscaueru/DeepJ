@@ -7,7 +7,8 @@ from constants import *
 import midi
 from copy import deepcopy
 import mido
-
+import os
+import glob
 
 def midi_encode(note_seq, resolution=NOTES_PER_BEAT, step=1):
     """
@@ -344,6 +345,55 @@ def midi_decode_v1(pattern,
 
     return final
 
+
+def transpose_keys(filename, out_dir):
+
+    one_track_midi = pm.PrettyMIDI(filename)
+    tempo = pm.get_tempo_changes()[1][0]
+    for i in range(12):
+        midi_transposed = pm.PrettyMIDI(initial_tempo=tempo)
+        midi_transposed.time_signature_changes = deepcopy(one_track_midi.time_signature_changes)
+        midi_transposed.key_signature_changes = [pm.KeySignature(i, 0)]
+        midi_transposed.instruments = deepcopy(one_track_midi.instruments)
+
+        file_name = out_dir + "/" + filename.split("/")[-1][:-4] + "_" + pm.key_number_to_key_name(i).replace(" ", "_") + ".mid"
+        print(file_name)
+        f = open(file_name, "w")
+        f.close()
+        midi_transposed.write(file_name)
+
+
+def are_same_notes(f1, f2):
+
+    p1 = pm.PrettyMIDI(f1)
+    p2 = pm.PrettyMIDI(f2)
+
+    for instrument_idx in range(len(p1.instruments)):
+        for i in range(len(p1.instruments[instrument_idx].notes)):
+            if p1.instruments[instrument_idx].notes[i].pitch != p2.instruments[instrument_idx].notes[i].pitch:
+                return False
+    return True
+
+
+def delete_same_files(dir_name):
+
+    transposed_files = glob.glob(dir_name + "/*.mid")
+    to_delete = {}
+
+    for t1 in transposed_files:
+        for t2 in transposed_files:
+            if t1 != t2:
+                # Check if they are the same
+                if are_same_notes(t1, t2):
+                    if t1 not in to_delete:
+                        to_delete[t1] = [t2]
+                    else:
+                        to_delete[t1].append(t2)
+
+    for key, val in to_delete.items():
+        if glob.glob(key):
+            for file in val:
+                os.remove(file)
 
 if __name__ == '__main__':
     # Test
