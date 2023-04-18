@@ -1,6 +1,7 @@
 """
 Handles MIDI file loading
 """
+import pretty_midi
 import pretty_midi as pm
 import numpy as np
 from constants import *
@@ -9,6 +10,8 @@ from copy import deepcopy
 import mido
 import os
 import glob
+import tensorflow as tf
+
 
 def midi_encode(note_seq, resolution=NOTES_PER_BEAT, step=1):
     """
@@ -230,14 +233,19 @@ def load_midi_v2(fname):
 
     p = pm.PrettyMIDI(fname)
     cache_path = os.path.join(CACHE_DIR, fname + '.npy')
-    try:
-        note_seq = np.load(cache_path)
-    except Exception:
-        # Perform caching
-        os.makedirs(os.path.dirname(cache_path), exist_ok=True)
+    os.makedirs(os.path.dirname(cache_path), exist_ok=True)
 
-        note_seq = midi_decode_v2(p)
-        np.save(cache_path, note_seq)
+    note_seq = midi_decode_v2(p)
+    # np.save(cache_path, note_seq)
+    # try:
+    #     note_seq = np.load(cache_path)
+    # except Exception:
+    #     # Perform caching
+    #     os.makedirs(os.path.dirname(cache_path), exist_ok=True)
+    #
+    #     note_seq = midi_decode_v2(p)
+    #     print(note_seq[1].shape)
+    #     np.save(cache_path, note_seq)
 
     return note_seq
 
@@ -255,11 +263,19 @@ def compute_drum_piano_roll(instrument, piano_roll, fs):
 def midi_decode_v2(p):
 
     # Compute piano rolls for every instrument
+    # Remove duplicated instruments and keep only the one with max notes length
+    instruments = {}
+    sorted_instruments = sorted(p.instruments, key=lambda x: len(x.notes), reverse=True)
+    for instrument in sorted_instruments:
+        if instrument.program not in instruments:
+            instruments[instrument.program] = instrument
+    # for instrument in instruments.values():
+    #     print(instrument, pretty_midi.program_to_instrument_name(instrument.program), len(instrument.notes))
     # TODO: compute for drums separately because pretty midi can't
     # TODO: determine the frequency for a 16th note? (but if the fs is higher then no replay matrix is needed since the
     #   pauses between consecutive notes are captured)
     piano_rolls = [] # [[instrument, t_play, t_volume]]
-    for instrument in p.instruments:
+    for instrument in instruments.values():
         print(pm.program_to_instrument_name(instrument.program), instrument.is_drum,
               instrument.get_piano_roll(FS).shape)
         if instrument.is_drum:
@@ -289,7 +305,7 @@ def midi_decode_v2(p):
     # TODO: what should be the instrument encoding for drums? for now in NUM_INSTRUMENTS
     drum_roll_play = np.zeros((pitches, max_time_steps))
     drum_roll_volume = np.zeros((pitches, max_time_steps))
-    final = np.zeros((NUM_INSTRUMENTS + 1, pitches, max_time_steps, 2)) # + drum dimension
+    final = np.zeros((max_time_steps, (NUM_INSTRUMENTS + 1) * pitches, 2)) # + drum dimension
     for piano_roll in piano_rolls:
         instrument = piano_roll[0]
         t_play = piano_roll[1]
@@ -300,14 +316,26 @@ def midi_decode_v2(p):
             drum_roll_play = drum_roll_play + t_play
             drum_roll_volume = drum_roll_volume + t_volume
         else:
-            print(np.stack([t_volume, t_play], axis=2).shape)
-            final[instrument.program] = np.stack([t_volume, t_play], axis=2)
+            # print(np.stack([t_volume.T, t_play.T], axis=2).shape)
+            # print(t_volume.flatten('F')[20*128:21*128])
+            # print(instrument.program)
+            # print(t_volume.shape) # (128, 383)
+            # print(t_volume.flatten('F').shape)
+            # print(t_volume[:, 20])
+            # print(final[:, :, 0].shape)
+            # print(final[:, instrument.program * pitches:(instrument.program + 1) * pitches, 0].shape) # (383, 128)
+            final[:, instrument.program * pitches:(instrument.program + 1) * pitches, 0] = t_play.T
+            final[:, instrument.program * pitches:(instrument.program + 1) * pitches, 1] = t_volume.T
+            #final[:, instrument.program] = np.stack([t_volume.T, t_play.T], axis=2) # 37
 
     # Limit the notes in any case there are more drums
     drum_roll_play[drum_roll_play > 1] = 1
     drum_roll_volume[drum_roll_volume > 1] = 1
-    drum_roll = np.stack([drum_roll_volume, drum_roll_play], axis=2)
-    final[NUM_INSTRUMENTS] = drum_roll
+    final[:, NUM_INSTRUMENTS * pitches:(NUM_INSTRUMENTS + 1) * pitches, 0] = drum_roll_play.T
+    final[:, NUM_INSTRUMENTS * pitches:(NUM_INSTRUMENTS + 1) * pitches, 1] = drum_roll_volume.T
+    # print(final[20, 37*pitches:38*pitches, 0])
+    # drum_roll = np.stack([drum_roll_volume.T, drum_roll_play.T], axis=2)
+    # final[:, NUM_INSTRUMENTS] = drum_roll
     #print(final[NUM_INSTRUMENTS, :, max_time_steps - 100, 1])
 
     beat_duration = p.get_beats()[1] - p.get_beats()[0]
@@ -395,12 +423,24 @@ def delete_same_files(dir_name):
             for file in val:
                 os.remove(file)
 
+def one_hot(i, nb_classes):
+    arr = np.zeros((nb_classes,))
+    arr[i] = 1
+    return arr
+
 if __name__ == '__main__':
     # Test
-    pp = mido.MidiFile("out/test_in.mid")
-    midi_decode_v1(pp)
-    # piece = pm.PrettyMIDI("out/test_in.mid")
-    # beats, decoded = midi_decode_v2(piece)
-    # print(beats[1], decoded.shape)
+    # pp = mido.MidiFile("out/test_in.mid")
+    # midi_decode_v1(pp)
+    piece = pm.PrettyMIDI("out/test_in.mid")
+    beats, decoded = midi_decode_v2(piece)
+    print(beats[1], decoded.shape)
     #p = midi_encode(midi_decode(p))
     #midi.write_midifile("out/test_out.mid", p)
+
+    # pitch_class_matrix = np.array([one_hot(n % OCTAVE, OCTAVE) for n in range(NUM_NOTES_INSTRUMENT)])  # notes, octaves
+    pitch_class_matrix = np.array([np.tile(one_hot(n % OCTAVE, OCTAVE), NUM_INSTRUMENTS + 1) for n in range(NUM_NOTES_INSTRUMENT)])  # notes, octaves
+    pitch_class_matrix = tf.constant(pitch_class_matrix, dtype='float32')
+    print(pitch_class_matrix)
+    pitch_class_matrix = tf.reshape(pitch_class_matrix, [1, 1, NUM_NOTES, OCTAVE])
+    print(pitch_class_matrix)

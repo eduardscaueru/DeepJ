@@ -53,12 +53,13 @@ def load_all(styles, batch_size, time_steps):
     for style_id, style in enumerate(styles):
         style_hot = one_hot(style_id, NUM_STYLES)
         # Parallel process all files into a list of music sequences
-        seqs = Parallel(n_jobs=multiprocessing.cpu_count(), backend='threading')(delayed(load_midi)(f) for f in get_all_files([style]))
+        seqs = Parallel(n_jobs=multiprocessing.cpu_count(), backend='threading')(delayed(load_midi_v2)(f) for f in get_all_files([style]))
 
         for seq in seqs:
+            pm_beats, seq = seq
             if len(seq) >= time_steps:
                 # Clamp MIDI to note range
-                seq = clamp_midi(seq)
+                # seq = clamp_midi(seq)
                 # Create training data and labels
                 train_data, label_data = stagger(seq, time_steps)
                 note_data += train_data
@@ -66,6 +67,7 @@ def load_all(styles, batch_size, time_steps):
 
                 beats = [compute_beat(i, NOTES_PER_BAR) for i in range(len(seq))]
                 beat_data += stagger(beats, time_steps)[0]
+                # print(np.asarray(beats).shape)
 
                 style_data += stagger([style_hot for i in range(len(seq))], time_steps)[0]
 
@@ -86,3 +88,8 @@ def unclamp_midi(sequence):
     Restore clamped MIDI sequence back to MIDI note values
     """
     return np.pad(sequence, ((0, 0), (MIN_NOTE, 0), (0, 0)), 'constant')
+
+if __name__ == "__main__":
+    data = load_all(styles, BATCH_SIZE, SEQ_LEN)
+    print(data[0][2].shape)
+    print(data[0][0].shape)

@@ -3,7 +3,7 @@ import tensorflow as tf
 from keras.layers import Input, LSTM, Dense, Dropout, Lambda, Reshape, Permute
 from keras.layers import TimeDistributed, RepeatVector, Conv1D, Activation
 from keras.layers import Embedding, Flatten
-from keras.layers.merge import Concatenate, Add
+from keras.layers import Concatenate, Add
 from keras.models import Model
 import keras.backend as K
 from keras import losses
@@ -15,16 +15,18 @@ def primary_loss(y_true, y_pred):
     # 3 separate loss calculations based on if note is played or not
     played = y_true[:, :, :, 0]
     bce_note = losses.binary_crossentropy(y_true[:, :, :, 0], y_pred[:, :, :, 0])
-    bce_replay = losses.binary_crossentropy(y_true[:, :, :, 1], tf.multiply(played, y_pred[:, :, :, 1]) + tf.multiply(1 - played, y_true[:, :, :, 1]))
-    mse = losses.mean_squared_error(y_true[:, :, :, 2], tf.multiply(played, y_pred[:, :, :, 2]) + tf.multiply(1 - played, y_true[:, :, :, 2]))
-    return bce_note + bce_replay + mse
+    # bce_replay = losses.binary_crossentropy(y_true[:, :, :, 1], tf.multiply(played, y_pred[:, :, :, 1]) + tf.multiply(1 - played, y_true[:, :, :, 1]))
+    mse = losses.mean_squared_error(y_true[:, :, :, 1], tf.multiply(played, y_pred[:, :, :, 1]) + tf.multiply(1 - played, y_true[:, :, :, 1]))
+    return bce_note + mse
+    # return bce_note + bce_replay + mse
 
 def pitch_pos_in_f(time_steps):
     """
     Returns a constant containing pitch position of each note
     """
     def f(x):
-        note_ranges = tf.range(NUM_NOTES, dtype='float32') / NUM_NOTES
+        note_ranges = tf.tile(tf.range(NUM_NOTES_INSTRUMENT, dtype='float32') / NUM_NOTES_INSTRUMENT,
+                              multiples=[NUM_INSTRUMENTS + 1])
         repeated_ranges = tf.tile(note_ranges, [tf.shape(x)[0] * time_steps])
         return tf.reshape(repeated_ranges, [tf.shape(x)[0], time_steps, NUM_NOTES, 1])
     return f
@@ -34,7 +36,8 @@ def pitch_class_in_f(time_steps):
     Returns a constant containing pitch class of each note
     """
     def f(x):
-        pitch_class_matrix = np.array([one_hot(n % OCTAVE, OCTAVE) for n in range(NUM_NOTES)])
+        # TODO: check this
+        pitch_class_matrix = np.array([np.tile(one_hot(n % OCTAVE, OCTAVE), NUM_INSTRUMENTS + 1) for n in range(NUM_NOTES_INSTRUMENT)])  # notes, octaves
         pitch_class_matrix = tf.constant(pitch_class_matrix, dtype='float32')
         pitch_class_matrix = tf.reshape(pitch_class_matrix, [1, 1, NUM_NOTES, OCTAVE])
         return tf.tile(pitch_class_matrix, [tf.shape(x)[0], time_steps, 1, 1])
@@ -42,6 +45,7 @@ def pitch_class_in_f(time_steps):
 
 def pitch_bins_f(time_steps):
     def f(x):
+        # TODO: research this
         bins = tf.reduce_sum([x[:, :, i::OCTAVE, 0] for i in range(OCTAVE)], axis=3)
         bins = tf.tile(bins, [NUM_OCTAVES, 1, 1])
         bins = tf.reshape(bins, [tf.shape(x)[0], time_steps, NUM_NOTES, 1])

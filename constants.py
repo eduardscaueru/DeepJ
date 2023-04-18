@@ -2,47 +2,37 @@ import os
 
 # Define the musical styles
 genre = [
-    'baroque',
-    'classical',
-    'romantic'
+    # 'action',
+    # 'adventure',
+    'arcade'
+    # 'horror'
 ]
 
 styles = [
+    # [
+    #     'data/action/batman',
+    #     'data/action/doom'
+    # ],
+    # [
+    #     'data/adventure/blade_runner',
+    #     'data/adventure/indiana_jones',
+    #     'data/adventure/myst'
+    # ],
     [
-        'data/baroque/bach',
-        'data/baroque/handel',
-        'data/baroque/pachelbel'
-    ],
-    [
-        'data/classical/burgmueller',
-        'data/classical/clementi',
-        'data/classical/haydn',
-        'data/classical/beethoven',
-        'data/classical/brahms',
-        'data/classical/mozart'
-    ],
-    [
-        'data/romantic/balakirew',
-        'data/romantic/borodin',
-        'data/romantic/brahms',
-        'data/romantic/chopin',
-        'data/romantic/debussy',
-        'data/romantic/liszt',
-        'data/romantic/mendelssohn',
-        'data/romantic/moszkowski',
-        'data/romantic/mussorgsky',
-        'data/romantic/rachmaninov',
-        'data/romantic/schubert',
-        'data/romantic/schumann',
-        'data/romantic/tchaikovsky',
-        'data/romantic/tschai'
+        # 'data/arcade/blox',
+        # 'data/arcade/burning_monkey',
+        'data/arcade/mario'
     ]
+    # [
+    #     'data/horror/blood',
+    #     'data/horror/house_of_the_dead'
+    # ]
 ]
 
 NUM_STYLES = sum(len(s) for s in styles)
 
 NUM_INSTRUMENTS = 128
-FS = 420
+FS = 5.25
 
 # MIDI Resolution
 DEFAULT_RES = 96
@@ -57,23 +47,27 @@ OCTAVE = 12
 MIN_NOTE = 0
 # MAX_NOTE = MIN_NOTE + NUM_OCTAVES * OCTAVE
 MAX_NOTE = 128
-NUM_NOTES = MAX_NOTE - MIN_NOTE
+NUM_NOTES = (NUM_INSTRUMENTS + 1) * (MAX_NOTE - MIN_NOTE)
+NUM_NOTES_INSTRUMENT = MAX_NOTE - MIN_NOTE
 
 # Number of beats in a bar
 BEATS_PER_BAR = 4
 # Notes per quarter note
 NOTES_PER_BEAT = 4
 # The quickest note is a half-note
-NOTES_PER_BAR = NOTES_PER_BEAT * BEATS_PER_BAR
+# NOTES_PER_BAR = NOTES_PER_BEAT * BEATS_PER_BAR
+NOTE_TIME_STEPS = 1
+NOTES_PER_BAR = NOTES_PER_BEAT * BEATS_PER_BAR * NOTE_TIME_STEPS
 
 # Training parameters
+BARS = 4
 BATCH_SIZE = 16
-SEQ_LEN = 8 * NOTES_PER_BAR
+SEQ_LEN = BARS * NOTES_PER_BAR
 
 # Hyper Parameters
 OCTAVE_UNITS = 64
 STYLE_UNITS = 64
-NOTE_UNITS = 3
+NOTE_UNITS = 2
 TIME_AXIS_UNITS = 256
 NOTE_AXIS_UNITS = 128
 

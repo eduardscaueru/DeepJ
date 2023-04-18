@@ -12,7 +12,7 @@ from midi_util import midi_encode
 from model import *
 
 def main():
-    models = build_or_load()
+    models = build_or_load(allow_load=False)
     train(models)
 
 def train(models):
