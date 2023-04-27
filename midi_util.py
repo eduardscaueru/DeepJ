@@ -444,3 +444,28 @@ if __name__ == '__main__':
     print(pitch_class_matrix)
     pitch_class_matrix = tf.reshape(pitch_class_matrix, [1, 1, NUM_NOTES, OCTAVE])
     print(pitch_class_matrix)
+
+    decoded = np.asarray([decoded])
+    # decoded = decoded[:, :16*5, :128, :]
+    print(decoded.shape)
+    octaves_t = []
+    for i in range(OCTAVE):
+        d = decoded[:, :, i::OCTAVE, 0]
+        # print(d.shape[-1] % OCTAVE)
+        if d.shape[-1] % (OCTAVE - 1) != 0:
+            # print(np.zeros((decoded.shape[0], decoded.shape[1], (OCTAVE - 1) - decoded[:, :, i::OCTAVE, 0].shape[-1])).shape)
+            # print(i, OCTAVE, "padded", np.append(d, np.zeros((decoded.shape[0], decoded.shape[1], (OCTAVE - 1) - (d.shape[-1] % OCTAVE))), axis=2).shape)
+            octaves_t.append(np.append(d, np.zeros((d.shape[0], d.shape[1], (OCTAVE - 1) - (d.shape[-1] % OCTAVE))), axis=2))
+        else:
+            # print(i ,OCTAVE, decoded[:, :, i::OCTAVE, 0].shape)
+            octaves_t.append(d)
+
+    # print(tf.constant(np.asarray([decoded[:, i::OCTAVE, 0] for i in range(OCTAVE)]), dtype='float32'))
+    print("octaves", np.asarray(octaves_t).shape)
+    bins_t = tf.reduce_sum(octaves_t, axis=3)
+    print(bins_t.shape)
+    bins_t = tf.tile(bins_t, [NUM_NOTES // OCTAVE, 1, 1])
+    print(bins_t.shape)
+    bins_t = tf.reshape(bins_t, [decoded.shape[0], decoded.shape[1], NUM_NOTES, 1])
+    print(bins_t.shape)
+

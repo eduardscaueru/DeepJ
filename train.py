@@ -10,8 +10,12 @@ from dataset import *
 from generate import *
 from midi_util import midi_encode
 from model import *
+import matplotlib
+matplotlib.use('TkAgg')
+import matplotlib.pyplot as plt
 
 def main():
+    tf.config.run_functions_eagerly(True)
     models = build_or_load(allow_load=False)
     train(models)
 
@@ -25,8 +29,19 @@ def train(models):
         TensorBoard(log_dir='out/logs', histogram_freq=1)
     ]
 
+    print('Compile')
+    models[0].compile(run_eagerly=True)
+
     print('Training')
-    models[0].fit(train_data, train_labels, epochs=1000, callbacks=cbs, batch_size=BATCH_SIZE)
+    history = models[0].fit(train_data, train_labels, epochs=4, callbacks=cbs, batch_size=BATCH_SIZE)
+
+    plt.plot(history.history['loss'])
+    plt.plot(history.history['val_loss'])
+    plt.title('model loss')
+    plt.ylabel('loss')
+    plt.xlabel('epoch')
+    plt.legend(['train', 'test'], loc='upper left')
+    plt.show()
 
 if __name__ == '__main__':
     main()
