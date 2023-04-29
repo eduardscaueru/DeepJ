@@ -3,3 +3,5 @@ tensorflow
 joblib
 tqdm
 h5py
+pretty_midi
+more_itertools

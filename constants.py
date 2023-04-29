@@ -31,7 +31,8 @@ styles = [
 
 NUM_STYLES = sum(len(s) for s in styles)
 
-NUM_INSTRUMENTS = 128
+NUM_INSTRUMENTS = 19
+MAX_INSTRUMENTS_PER_SONG = 3
 FS = 5.25
 
 # MIDI Resolution

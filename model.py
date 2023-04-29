@@ -55,10 +55,10 @@ def pitch_class_in_f(time_steps):
 
 
 def my_numpy_func(tensor_np):
-    print(tensor_np.shape)
-    return np.append(tensor_np, np.zeros((tensor_np.shape[0],
+    print("octaves:", tensor_np.shape)
+    return np.ndarray.astype(np.append(tensor_np, np.zeros((tensor_np.shape[0],
                                           tensor_np.shape[1],
-                                          (OCTAVE - 1) - (tensor_np.shape[-1] % OCTAVE))), axis=2)
+                                          (OCTAVE - 1) - (tensor_np.shape[-1] % OCTAVE))), axis=2), np.float32)
 
 
 @tf.function(input_signature=[tf.TensorSpec(None, tf.float32)])
@@ -81,6 +81,7 @@ def pitch_bins_f(time_steps):
         bins = tf.reduce_sum(octaves, axis=3)
         bins = tf.tile(bins, [NUM_NOTES // OCTAVE, 1, 1])
         bins = tf.reshape(bins, [tf.shape(x)[0], time_steps, NUM_NOTES, 1])
+        print("Bins:", bins.shape)
         return bins
 
     return f
@@ -119,6 +120,7 @@ def time_axis(dropout):
             style_proj = Permute((2, 1, 3))(style_proj)
             x = Add()([x, style_proj])
 
+            print(x.shape)
             x = TimeDistributed(LSTM(TIME_AXIS_UNITS, return_sequences=True))(x)
             x = Dropout(dropout)(x)
 

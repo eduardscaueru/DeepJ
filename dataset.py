@@ -91,5 +91,5 @@ def unclamp_midi(sequence):
 
 if __name__ == "__main__":
     data = load_all(styles, BATCH_SIZE, SEQ_LEN)
-    print(data[0][2].shape)
+    print(data[0][3].shape)
     print(data[0][0].shape)

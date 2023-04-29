@@ -1,7 +1,6 @@
 import numpy as np
 import tensorflow as tf
 from collections import deque
-import midi
 import argparse
 
 from constants import *

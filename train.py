@@ -2,7 +2,6 @@ import tensorflow as tf
 from keras.callbacks import ModelCheckpoint, LambdaCallback
 from keras.callbacks import EarlyStopping, TensorBoard
 import argparse
-import midi
 import os
 
 from constants import *
@@ -11,7 +10,7 @@ from generate import *
 from midi_util import midi_encode
 from model import *
 import matplotlib
-matplotlib.use('TkAgg')
+matplotlib.use('Agg')
 import matplotlib.pyplot as plt
 
 def main():

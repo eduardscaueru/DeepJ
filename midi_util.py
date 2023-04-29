@@ -1,17 +1,15 @@
 """
 Handles MIDI file loading
 """
-import pretty_midi
 import pretty_midi as pm
 import numpy as np
 from constants import *
-import midi
 from copy import deepcopy
 import mido
 import os
 import glob
 import tensorflow as tf
-
+from more_itertools.more import unzip
 
 def midi_encode(note_seq, resolution=NOTES_PER_BEAT, step=1):
     """
@@ -303,19 +301,23 @@ def midi_decode_v2(p):
 
     # Compute final array with instrument dimension
     # TODO: what should be the instrument encoding for drums? for now in NUM_INSTRUMENTS
-    drum_roll_play = np.zeros((pitches, max_time_steps))
-    drum_roll_volume = np.zeros((pitches, max_time_steps))
+    # drum_roll_play = np.zeros((pitches, max_time_steps))
+    # drum_roll_volume = np.zeros((pitches, max_time_steps))
     final = np.zeros((max_time_steps, (NUM_INSTRUMENTS + 1) * pitches, 2)) # + drum dimension
+    max_drum_notes = sorted([len(instrument.notes) for instrument in p.instruments if instrument.is_drum], reverse=True)[0]
     for piano_roll in piano_rolls:
         instrument = piano_roll[0]
         t_play = piano_roll[1]
         t_volume = piano_roll[2]
 
-        # If there are more drums then put them in a single channel
-        if instrument.is_drum:
-            drum_roll_play = drum_roll_play + t_play
-            drum_roll_volume = drum_roll_volume + t_volume
-        else:
+        # If there are more drums then get only the one with the most notes.
+        if instrument.is_drum and len(instrument.notes) == max_drum_notes:
+            # drum_roll_play = drum_roll_play + t_play
+            # drum_roll_volume = drum_roll_volume + t_volume
+            instrument_idx = instrument_to_idx[-1]
+            final[:, instrument_idx * pitches:(instrument_idx + 1) * pitches, 0] = t_play.T
+            final[:, instrument_idx * pitches:(instrument_idx + 1) * pitches, 1] = t_volume.T
+        elif instrument.program in instrument_to_idx:
             # print(np.stack([t_volume.T, t_play.T], axis=2).shape)
             # print(t_volume.flatten('F')[20*128:21*128])
             # print(instrument.program)
@@ -324,15 +326,16 @@ def midi_decode_v2(p):
             # print(t_volume[:, 20])
             # print(final[:, :, 0].shape)
             # print(final[:, instrument.program * pitches:(instrument.program + 1) * pitches, 0].shape) # (383, 128)
-            final[:, instrument.program * pitches:(instrument.program + 1) * pitches, 0] = t_play.T
-            final[:, instrument.program * pitches:(instrument.program + 1) * pitches, 1] = t_volume.T
+            instrument_idx = instrument_to_idx[instrument.program]
+            final[:, instrument_idx * pitches:(instrument_idx + 1) * pitches, 0] = t_play.T
+            final[:, instrument_idx * pitches:(instrument_idx + 1) * pitches, 1] = t_volume.T
             #final[:, instrument.program] = np.stack([t_volume.T, t_play.T], axis=2) # 37
 
     # Limit the notes in any case there are more drums
-    drum_roll_play[drum_roll_play > 1] = 1
-    drum_roll_volume[drum_roll_volume > 1] = 1
-    final[:, NUM_INSTRUMENTS * pitches:(NUM_INSTRUMENTS + 1) * pitches, 0] = drum_roll_play.T
-    final[:, NUM_INSTRUMENTS * pitches:(NUM_INSTRUMENTS + 1) * pitches, 1] = drum_roll_volume.T
+    # drum_roll_play[drum_roll_play > 1] = 1
+    # drum_roll_volume[drum_roll_volume > 1] = 1
+    # final[:, NUM_INSTRUMENTS * pitches:(NUM_INSTRUMENTS + 1) * pitches, 0] = drum_roll_play.T
+    # final[:, NUM_INSTRUMENTS * pitches:(NUM_INSTRUMENTS + 1) * pitches, 1] = drum_roll_volume.T
     # print(final[20, 37*pitches:38*pitches, 0])
     # drum_roll = np.stack([drum_roll_volume.T, drum_roll_play.T], axis=2)
     # final[:, NUM_INSTRUMENTS] = drum_roll
@@ -428,44 +431,74 @@ def one_hot(i, nb_classes):
     arr[i] = 1
     return arr
 
+
+def limit_instruments():
+    instrument_freq = {}
+    for root, dirs, files in os.walk("./data", topdown=False):
+        for name in files:
+            midi_file_name = os.path.join(root, name)
+            song = pm.PrettyMIDI(midi_file_name)
+            sorted_instruments_by_notes = sorted([(len(x.notes), x.program) for x in song.instruments],
+                                                 key=lambda x: x[0], reverse=True)[:MAX_INSTRUMENTS_PER_SONG]
+            _, programs = unzip(sorted_instruments_by_notes)
+            for program in programs:
+                if program not in instrument_freq:
+                    instrument_freq[program] = 1
+
+    # print(instrument_freq)
+    # print(sorted(list(instrument_freq.items()), key=lambda x: x[1], reverse=True))
+    programs = list(instrument_freq.keys())
+    program_to_idx = list(zip(programs, np.arange(len(programs))))
+    program_to_idx.append((-1, len(program_to_idx)))
+    # print(dict(program_to_idx))
+    print("NUM_INSTRUMENTS={}".format(len(program_to_idx) - 1))
+
+    return dict(program_to_idx)
+
+
+instrument_to_idx = limit_instruments()
+
+
 if __name__ == '__main__':
     # Test
     # pp = mido.MidiFile("out/test_in.mid")
     # midi_decode_v1(pp)
+    print("INTRUMENT to IDX:", instrument_to_idx)
     piece = pm.PrettyMIDI("out/test_in.mid")
     beats, decoded = midi_decode_v2(piece)
     print(beats[1], decoded.shape)
+    # print(decoded[32, 43 * 128:(43 + 1) * 128, 1])
     #p = midi_encode(midi_decode(p))
     #midi.write_midifile("out/test_out.mid", p)
 
-    # pitch_class_matrix = np.array([one_hot(n % OCTAVE, OCTAVE) for n in range(NUM_NOTES_INSTRUMENT)])  # notes, octaves
-    pitch_class_matrix = np.array([np.tile(one_hot(n % OCTAVE, OCTAVE), NUM_INSTRUMENTS + 1) for n in range(NUM_NOTES_INSTRUMENT)])  # notes, octaves
-    pitch_class_matrix = tf.constant(pitch_class_matrix, dtype='float32')
-    print(pitch_class_matrix)
-    pitch_class_matrix = tf.reshape(pitch_class_matrix, [1, 1, NUM_NOTES, OCTAVE])
-    print(pitch_class_matrix)
-
-    decoded = np.asarray([decoded])
-    # decoded = decoded[:, :16*5, :128, :]
-    print(decoded.shape)
-    octaves_t = []
-    for i in range(OCTAVE):
-        d = decoded[:, :, i::OCTAVE, 0]
-        # print(d.shape[-1] % OCTAVE)
-        if d.shape[-1] % (OCTAVE - 1) != 0:
-            # print(np.zeros((decoded.shape[0], decoded.shape[1], (OCTAVE - 1) - decoded[:, :, i::OCTAVE, 0].shape[-1])).shape)
-            # print(i, OCTAVE, "padded", np.append(d, np.zeros((decoded.shape[0], decoded.shape[1], (OCTAVE - 1) - (d.shape[-1] % OCTAVE))), axis=2).shape)
-            octaves_t.append(np.append(d, np.zeros((d.shape[0], d.shape[1], (OCTAVE - 1) - (d.shape[-1] % OCTAVE))), axis=2))
-        else:
-            # print(i ,OCTAVE, decoded[:, :, i::OCTAVE, 0].shape)
-            octaves_t.append(d)
-
-    # print(tf.constant(np.asarray([decoded[:, i::OCTAVE, 0] for i in range(OCTAVE)]), dtype='float32'))
-    print("octaves", np.asarray(octaves_t).shape)
-    bins_t = tf.reduce_sum(octaves_t, axis=3)
-    print(bins_t.shape)
-    bins_t = tf.tile(bins_t, [NUM_NOTES // OCTAVE, 1, 1])
-    print(bins_t.shape)
-    bins_t = tf.reshape(bins_t, [decoded.shape[0], decoded.shape[1], NUM_NOTES, 1])
-    print(bins_t.shape)
+    # # pitch_class_matrix = np.array([one_hot(n % OCTAVE, OCTAVE) for n in range(NUM_NOTES_INSTRUMENT)])  # notes, octaves
+    # pitch_class_matrix = np.array([np.tile(one_hot(n % OCTAVE, OCTAVE), NUM_INSTRUMENTS + 1) for n in range(NUM_NOTES_INSTRUMENT)])  # notes, octaves
+    # pitch_class_matrix = tf.constant(pitch_class_matrix, dtype='float32')
+    # print(pitch_class_matrix)
+    # pitch_class_matrix = tf.reshape(pitch_class_matrix, [1, 1, NUM_NOTES, OCTAVE])
+    # print(pitch_class_matrix)
+    #
+    # decoded = np.asarray([decoded])
+    # # decoded = decoded[:, :16*5, :128, :]
+    # print(decoded.shape)
+    # octaves_t = []
+    # for i in range(OCTAVE):
+    #     d = decoded[:, :, i::OCTAVE, 0]
+    #     # print(d.shape[-1] % OCTAVE)
+    #     if d.shape[-1] % (OCTAVE - 1) != 0:
+    #         # print(np.zeros((decoded.shape[0], decoded.shape[1], (OCTAVE - 1) - decoded[:, :, i::OCTAVE, 0].shape[-1])).shape)
+    #         # print(i, OCTAVE, "padded", np.append(d, np.zeros((decoded.shape[0], decoded.shape[1], (OCTAVE - 1) - (d.shape[-1] % OCTAVE))), axis=2).shape)
+    #         octaves_t.append(np.append(d, np.zeros((d.shape[0], d.shape[1], (OCTAVE - 1) - (d.shape[-1] % OCTAVE))), axis=2))
+    #     else:
+    #         # print(i ,OCTAVE, decoded[:, :, i::OCTAVE, 0].shape)
+    #         octaves_t.append(d)
+    #
+    # # print(tf.constant(np.asarray([decoded[:, i::OCTAVE, 0] for i in range(OCTAVE)]), dtype='float32'))
+    # print("octaves", np.asarray(octaves_t).shape)
+    # bins_t = tf.reduce_sum(octaves_t, axis=3)
+    # print(bins_t.shape)
+    # bins_t = tf.tile(bins_t, [NUM_NOTES // OCTAVE, 1, 1])
+    # print(bins_t.shape)
+    # bins_t = tf.reshape(bins_t, [decoded.shape[0], decoded.shape[1], NUM_NOTES, 1])
+    # print(bins_t.shape)
 
