@@ -59,7 +59,7 @@ def load_all(styles, batch_size, time_steps):
             pm_beats, seq = seq
             if len(seq) >= time_steps:
                 # Clamp MIDI to note range
-                # seq = clamp_midi(seq)
+                seq = clamp_midi(seq)
                 # Create training data and labels
                 train_data, label_data = stagger(seq, time_steps)
                 note_data += train_data
@@ -81,7 +81,13 @@ def clamp_midi(sequence):
     """
     Clamps the midi base on the MIN and MAX notes
     """
-    return sequence[:, MIN_NOTE:MAX_NOTE, :]
+    new_seq = np.zeros((sequence.shape[0], NUM_NOTES_INSTRUMENT * (NUM_INSTRUMENTS + 1), sequence.shape[2]))
+    # print(new_seq.shape)
+    for i in range(NUM_INSTRUMENTS + 1):
+        # print(i, i * diff, (i + 1) * diff, MIDI_MAX_NOTES * i + MIN_NOTE, MIDI_MAX_NOTES * i + MAX_NOTE)
+        new_seq[:, i * NUM_NOTES_INSTRUMENT:(i + 1) * NUM_NOTES_INSTRUMENT, :] = sequence[:, MIDI_MAX_NOTES * i + MIN_NOTE:MIDI_MAX_NOTES * i + MAX_NOTE, :]
+    # print(new_seq.shape)
+    return new_seq
 
 def unclamp_midi(sequence):
     """
@@ -93,3 +99,7 @@ if __name__ == "__main__":
     data = load_all(styles, BATCH_SIZE, SEQ_LEN)
     print(data[0][3].shape)
     print(data[0][0].shape)
+    # piece = pm.PrettyMIDI("out/test_in.mid")
+    # beats, decoded = midi_decode_v2(piece)
+    # print(beats[1], decoded.shape)
+    # clamp_midi(decoded)
