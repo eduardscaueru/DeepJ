@@ -133,7 +133,7 @@ def time_axis(dropout):
 def note_axis(dropout):
     dense_layer_cache = {}
     lstm_layer_cache = {}
-    note_dense = Dense(2, activation='sigmoid', name='note_dense')
+    note_dense = Dense(1, activation='sigmoid', name='note_dense')
     volume_dense = Dense(1, name='volume_dense')
 
     def f(x, chosen, style):
@@ -211,3 +211,7 @@ def build_models(time_steps=SEQ_LEN, input_dropout=0.2, dropout=0.5):
     note_model = Model([note_features, chosen_gen_in, style_gen_in], note_gen_out)
 
     return model, time_model, note_model
+
+if __name__ == "__main__":
+    model, time_model, note_model = build_models()
+    model.summary()
